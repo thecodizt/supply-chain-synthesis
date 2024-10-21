@@ -458,7 +458,9 @@ class SupplyChainSimulation:
     def save_node_data(self, node_id, node_data, path):
         filename = hashlib.md5(node_id.encode()).hexdigest() + ".json"
         with open(os.path.join(path, filename), "w") as f:
-            json.dump({"id": node_id, "data": node_data}, f)
+            json.dump(
+                {"id": node_id, "data": node_data}, f, ensure_ascii=False, indent=2
+            )
 
     def save_edge_data(self, edges, path):
         filename = "edges.json"
