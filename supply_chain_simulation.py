@@ -7,6 +7,10 @@ from collections import Counter
 import errno
 import hashlib
 import sys
+import shutil
+from datetime import datetime
+import time
+from collections import defaultdict
 
 
 class SupplyChainSimulation:
@@ -22,6 +26,18 @@ class SupplyChainSimulation:
         os.makedirs(self.metadata_path, exist_ok=True)
 
         self.schema = self.load_or_create_schema()
+
+        self.counters = {
+            "Business Unit": 0,
+            "Product": 0,
+            "Part": 0,
+            "Supplier": 0,
+            "Warehouse": 0,
+            "Purchase Order": 0,
+            "Product Instance": 0,
+            "Part Instance": 0,
+        }
+
         self.data = self.load_or_create_data()
         self.initialize_graph()
 
@@ -75,48 +91,52 @@ class SupplyChainSimulation:
         }
 
         # Create Business Units
-        for i in range(self.config["num_business_units"]):
-            bu_id = f"BU_{i+1}"
+        for _ in range(self.config["num_business_units"]):
+            bu_id = self.generate_id("Business Unit")
             data["Business Units"][bu_id] = {
-                "name": f"Business Unit {i+1}",
+                "name": f"Business Unit {self.counters['Business Unit']}",
                 "products": [],
+                "timestamp": self.timestamp,
             }
 
         # Create Parts with hierarchy based on schema
         self.create_parts_hierarchy(data)
 
         # Create Products
-        for i in range(self.config["num_products"]):
-            product_id = f"P_{i+1}"
+        for _ in range(self.config["num_products"]):
+            product_id = self.generate_id("Product")
             business_unit = random.choice(list(data["Business Units"].keys()))
             data["Products"][product_id] = {
-                "name": f"Product {i+1}",
+                "name": f"Product {self.counters['Product']}",
                 "expected_life": random.randint(5000, 20000),
                 "parts": self.assign_parts_to_product(data["Parts"]),
                 "business_unit": business_unit,
+                "timestamp": self.timestamp,
             }
             data["Business Units"][business_unit]["products"].append(product_id)
 
         # Create Suppliers
-        for i in range(self.config["num_suppliers"]):
-            supplier_id = f"S_{i+1}"
+        for _ in range(self.config["num_suppliers"]):
+            supplier_id = self.generate_id("Supplier")
             data["Suppliers"][supplier_id] = {
-                "name": f"Supplier {i+1}",
-                "location": f"Location {i+1}",
+                "name": f"Supplier {self.counters['Supplier']}",
+                "location": f"Location {self.counters['Supplier']}",
                 "products": random.sample(
                     list(data["Products"].keys()), random.randint(1, 5)
                 ),
+                "timestamp": self.timestamp,
             }
 
         # Create Warehouses
-        for i in range(self.config["num_warehouses"]):
-            warehouse_id = f"W_{i+1}"
+        for _ in range(self.config["num_warehouses"]):
+            warehouse_id = self.generate_id("Warehouse")
             data["Warehouses"][warehouse_id] = {
-                "name": f"Warehouse {i+1}",
-                "location": f"Location {i+1}",
+                "name": f"Warehouse {self.counters['Warehouse']}",
+                "location": f"Location {self.counters['Warehouse']}",
                 "products": random.sample(
                     list(data["Products"].keys()), random.randint(5, 20)
                 ),
+                "timestamp": self.timestamp,
             }
 
         return data
@@ -126,11 +146,12 @@ class SupplyChainSimulation:
         max_subparts = self.schema["Part"]["max_subparts"]
 
         def create_part(depth=0):
-            part_id = f"PT_{len(data['Parts']) + 1}"
+            part_id = self.generate_id("Part")
             data["Parts"][part_id] = {
-                "name": f"Part Type {len(data['Parts']) + 1}",
+                "name": f"Part Type {self.counters['Part']}",
                 "expected_life": random.randint(1000, 10000),
                 "subparts": {},
+                "timestamp": self.timestamp,
             }
 
             if (
@@ -208,13 +229,16 @@ class SupplyChainSimulation:
                     print(f"Error: Unable to infer type for node {node}")
 
     def add_node(self, node_id, node_type, node_data):
-        if node_id not in self.graph:
-            node_data = (
-                node_data.copy()
-            )  # Create a copy to avoid modifying the original data
-            node_data["type"] = node_type  # Add node type as an attribute
-            self.graph.add_node(node_id, **node_data)
-        return node_id
+        now = datetime.now().isoformat()
+        node_data["type"] = node_type
+        node_data["created_at"] = now
+        node_data["updated_at"] = now
+        self.graph.add_node(node_id, **node_data)
+
+    def update_node(self, node_id, updates):
+        if node_id in self.graph:
+            self.graph.nodes[node_id].update(updates)
+            self.graph.nodes[node_id]["updated_at"] = datetime.now().isoformat()
 
     def generate_purchase_order(self):
         suppliers = [
@@ -242,11 +266,16 @@ class SupplyChainSimulation:
 
         product = random.choice(supplier_data["products"])
         units = random.randint(1, 10)  # Random number of units for the product
-        po_id = f"PO_{uuid.uuid4()}"
+        po_id = self.generate_id("Purchase Order")
         self.add_node(
             po_id,
             "Purchase Order",
-            {"supplier": supplier, "product": product, "units": units},
+            {
+                "supplier": supplier,
+                "product": product,
+                "units": units,
+                "timestamp": self.timestamp,
+            },
         )
         self.graph.add_edge(po_id, supplier)
         self.graph.add_edge(po_id, product)
@@ -268,9 +297,10 @@ class SupplyChainSimulation:
             self.create_product_instance(product, supplier)
 
     def create_product_instance(self, product_id, supplier):
-        new_product_id = f"{product_id}_{uuid.uuid4()}"
+        new_product_id = self.generate_id("Product Instance")
         product_data = self.data["Products"][product_id].copy()
         product_data["original_id"] = product_id
+        product_data["timestamp"] = self.timestamp
         self.add_node(new_product_id, "Product Instance", product_data)
         self.graph.add_edge(new_product_id, supplier)
 
@@ -292,9 +322,10 @@ class SupplyChainSimulation:
             print(f"Warning: No warehouses available for product {new_product_id}")
 
     def create_part_instance(self, part_id):
-        new_part_id = f"{part_id}_{uuid.uuid4()}"
+        new_part_id = self.generate_id("Part Instance")
         part_data = self.data["Parts"][part_id].copy()
         part_data["original_id"] = part_id
+        part_data["timestamp"] = self.timestamp
         self.add_node(new_part_id, "Part Instance", part_data)
 
         for subpart_id, quantity in part_data.get("subparts", {}).items():
@@ -303,18 +334,6 @@ class SupplyChainSimulation:
                 self.graph.add_edge(new_part_id, new_subpart_id)
 
         return new_part_id
-
-    def simulate_timestamp(self):
-        self.timestamp += 1
-        num_pos = random.randint(1, self.config["max_pos_per_timestamp"])
-
-        for _ in range(num_pos):
-            po_id = self.generate_purchase_order()
-            if po_id:
-                self.process_purchase_order(po_id)
-
-        self.age_parts()
-        self.save_graph_state()
 
     def age_parts(self):
         for node, data in self.graph.nodes(data=True):
@@ -334,126 +353,146 @@ class SupplyChainSimulation:
                 print(f"Warning: Node {node} has no 'type' attribute. Skipping aging.")
 
     def save_graph_state(self):
-        timestamp_path = os.path.join(self.data_path, f"t_{self.timestamp}")
-        timestamp_path = self.create_directory(timestamp_path)
-        print(f"Saving graph state for timestamp {self.timestamp}")
+        timestamp_file = os.path.join(self.data_path, f"t_{self.timestamp}.json")
+        graph_data = {
+            "nodes": dict(self.graph.nodes(data=True)),
+            "edges": list(self.graph.edges()),
+        }
+        with open(timestamp_file, "w") as f:
+            json.dump(graph_data, f)
 
-        node_counts = Counter()
-        edge_counts = Counter()
+    def load_graph_state(self, timestamp):
+        timestamp_file = os.path.join(self.data_path, f"t_{timestamp}.json")
+        if os.path.exists(timestamp_file):
+            with open(timestamp_file, "r") as f:
+                graph_data = json.load(f)
 
-        root_nodes = [
-            n
-            for n, d in self.graph.nodes(data=True)
-            if d.get("type") in ["Business Unit", "Purchase Order"]
-        ]
-        for root in root_nodes:
-            subgraph = self.graph.subgraph(nx.descendants(self.graph, root) | {root})
-            self.save_subgraph(subgraph, timestamp_path, node_counts, edge_counts)
+            G = nx.Graph()
+            G.add_nodes_from((n, d) for n, d in graph_data["nodes"].items())
+            G.add_edges_from(graph_data["edges"])
+            return G
+        else:
+            raise FileNotFoundError(f"No data found for timestamp {timestamp}")
 
-        print(f"Timestamp {self.timestamp} summary:")
-        for node_type, count in node_counts.items():
-            print(f"  Saved {count} {node_type} nodes")
-        for node_type, count in edge_counts.items():
-            print(f"  Saved {count} edges for {node_type} nodes")
-        print(f"Finished saving graph state for timestamp {self.timestamp}")
+    def simulate_addition(self):
+        start_time = time.time()
+        self.timestamp += 1
+        num_pos = random.randint(1, self.config["max_pos_per_timestamp"])
 
-        # Print warning for nodes without 'type' attribute
-        nodes_without_type = [
-            n for n, d in self.graph.nodes(data=True) if "type" not in d
-        ]
-        if nodes_without_type:
-            print(
-                f"Warning: The following nodes have no 'type' attribute: {nodes_without_type}"
-            )
+        for _ in range(num_pos):
+            po_id = self.generate_purchase_order()
+            if po_id:
+                self.process_purchase_order(po_id)
 
-    def save_subgraph(self, subgraph, current_path, node_counts, edge_counts):
-        original_dir = os.getcwd()
-        try:
-            current_path = os.path.abspath(current_path)
-            os.chdir(current_path)
-            for node in subgraph.nodes():
-                node_data = subgraph.nodes[node]
-                node_type = node_data.get("type", "Unknown")
-                safe_name = self.safe_filename(node, node_type)
+        self.age_parts()
+        self.save_graph_state()
+        end_time = time.time()
+        self.log_timestamp_info(start_time, end_time)
 
-                try:
-                    node_dir = self.create_directory(
-                        os.path.join(current_path, safe_name)
-                    )
-                    os.chdir(node_dir)
+    def simulate_updation(self):
+        start_time = time.time()
+        self.timestamp += 1
+        num_updates = random.randint(1, self.config["max_updates_per_timestamp"])
 
-                    # Save node data
-                    with open("node_data.json", "w") as f:
-                        json.dump({"id": node, "data": node_data}, f)
-                    node_counts[node_type] += 1
+        for _ in range(num_updates):
+            node = random.choice(list(self.graph.nodes()))
+            updates = self.generate_random_updates(self.graph.nodes[node])
+            self.update_node(node, updates)
 
-                    # Save edge data
-                    edges = list(subgraph.edges(node))
-                    if edges:
-                        edge_data = [
-                            {"source": node, "target": target}
-                            for target in subgraph.neighbors(node)
-                        ]
-                        with open("edge_data.json", "w") as f:
-                            json.dump(edge_data, f)
-                        edge_counts[node_type] += len(edges)
+        self.age_parts()
+        self.save_graph_state()
+        end_time = time.time()
+        self.log_timestamp_info(start_time, end_time)
 
-                    # Recursively save the subgraph of this node's neighbors
-                    neighbor_subgraph = subgraph.subgraph(
-                        list(subgraph.neighbors(node))
-                    )
-                    self.save_subgraph(
-                        neighbor_subgraph, node_dir, node_counts, edge_counts
-                    )
+    def simulate_deletion(self):
+        start_time = time.time()
+        self.timestamp += 1
+        num_deletions = random.randint(1, self.config["max_deletions_per_timestamp"])
 
-                except OSError as e:
-                    if e.errno == errno.ENAMETOOLONG:
-                        print(
-                            f"Warning: Path too long for node {node}. Skipping this node and its subgraph."
-                        )
-                    else:
-                        raise
-                finally:
-                    os.chdir(current_path)
-        finally:
-            os.chdir(original_dir)
+        for _ in range(num_deletions):
+            if self.graph.number_of_nodes() > 0:
+                node = random.choice(list(self.graph.nodes()))
+                self.graph.remove_node(node)
 
-    def create_directory(self, path):
-        try:
-            os.makedirs(path, exist_ok=True)
-        except OSError as e:
-            if e.errno == errno.ENAMETOOLONG:
-                # If the path is too long, create a shortened version
-                parts = path.split(os.sep)
-                shortened_parts = [
-                    p[:20] for p in parts
-                ]  # Truncate each part to 20 characters
-                short_path = os.sep.join(shortened_parts)
-                os.makedirs(short_path, exist_ok=True)
-                return short_path
-            else:
-                raise
-        return path
+        self.age_parts()
+        self.save_graph_state()
+        end_time = time.time()
+        self.log_timestamp_info(start_time, end_time)
 
-    def safe_filename(self, name, node_type):
-        # Prefix the filename with the node type
-        prefix = f"{node_type}_"
-        # Replace any characters that are invalid in filenames
-        safe_name = "".join(c for c in name if c.isalnum() or c in ["-", "_"]).rstrip()
-        # Truncate the name if it's too long
-        max_length = 255 - len(prefix) - 1  # Account for prefix and potential separator
-        if len(safe_name) > max_length:
-            safe_name = safe_name[:max_length]
-        return prefix + safe_name
+    def simulate_schema_update(self):
+        start_time = time.time()
+        self.timestamp += 1
+        node_types = set(nx.get_node_attributes(self.graph, "type").values())
 
-    def safe_save_file(self, directory, filename, content):
-        full_path = os.path.join(directory, filename)
-        with open(full_path, "w") as f:
-            f.write(content)
+        for node_type in node_types:
+            if random.random() < 0.3:  # 30% chance to update schema for each node type
+                if random.random() < 0.5:  # 50% chance to add a property
+                    new_property = f"new_property_{self.timestamp}"
+                    default_value = random.choice([0, 1, True, False, "New Value"])
+                    for node, data in self.graph.nodes(data=True):
+                        if data.get("type") == node_type:
+                            self.graph.nodes[node][new_property] = default_value
+                else:  # 50% chance to remove a property
+                    non_essential_props = [
+                        prop
+                        for prop in self.graph.nodes[list(self.graph.nodes())[0]].keys()
+                        if prop not in ["type", "id", "created_at", "updated_at"]
+                    ]
+                    if non_essential_props:
+                        prop_to_remove = random.choice(non_essential_props)
+                        for node, data in self.graph.nodes(data=True):
+                            if data.get("type") == node_type and prop_to_remove in data:
+                                del self.graph.nodes[node][prop_to_remove]
+
+        self.save_graph_state()
+        end_time = time.time()
+        self.log_timestamp_info(start_time, end_time)
+
+    def log_timestamp_info(self, start_time, end_time):
+        timestamp_file = os.path.join(self.data_path, f"t_{self.timestamp}.json")
+        file_size = os.path.getsize(timestamp_file) / 1024  # Convert to KB
+        generation_time = end_time - start_time
+
+        node_type_stats = defaultdict(int)
+        for _, data in self.graph.nodes(data=True):
+            node_type_stats[data.get("type", "Unknown")] += 1
+
+        print(f"Timestamp {self.timestamp}:")
+        print(f"  File size: {file_size:.2f} KB")
+        print(f"  Generation time: {generation_time:.2f} seconds")
+        print("  Node type stats:")
+        for node_type, count in node_type_stats.items():
+            print(f"    {node_type}: {count}")
+        print()
+
+    def generate_random_updates(self, node_data):
+        updates = {}
+        if "age" in node_data:
+            updates["age"] = node_data["age"] + random.randint(1, 10)
+        if (
+            "status" in node_data and random.random() < 0.1
+        ):  # 10% chance to change status
+            updates["status"] = random.choice(["Active", "Inactive", "Maintenance"])
+        return updates
 
     def run_simulation(self):
-        for _ in range(self.config["num_timestamps"]):
-            self.simulate_timestamp()
+        # Initial synthesis
+        for _ in range(self.config["initial_timestamps"]):
+            self.simulate_addition()
+
+        # Updates, deletions, and schema updates
+        for _ in range(self.config["update_delete_timestamps"]):
+            action = random.choices(
+                ["update", "delete", "schema_update"], weights=[0.6, 0.3, 0.1]
+            )[0]
+            if action == "update":
+                self.simulate_updation()
+            elif action == "delete":
+                self.simulate_deletion()
+            else:
+                self.simulate_schema_update()
+
+        print("Simulation completed.")
 
     def save_node_data(self, node_id, node_data, path):
         filename = hashlib.md5(node_id.encode()).hexdigest() + ".json"
@@ -469,14 +508,23 @@ class SupplyChainSimulation:
                 json.dump({"source": edge[0], "target": edge[1]}, f)
                 f.write("\n")
 
+    def generate_id(self, node_type):
+        if node_type not in self.counters:
+            self.counters[node_type] = 0
+        self.counters[node_type] += 1
+        return f"{node_type.replace(' ', '_')}_{self.counters[node_type]:06d}"
+
 
 # Increase the recursion limit
 sys.setrecursionlimit(10000)
 
 # Example usage
 config = {
-    "num_timestamps": 100,
+    "initial_timestamps": 3,
+    "update_delete_timestamps": 3,
     "max_pos_per_timestamp": 5,
+    "max_updates_per_timestamp": 10,
+    "max_deletions_per_timestamp": 3,
     "num_business_units": 10,
     "num_products": 50,
     "num_suppliers": 20,

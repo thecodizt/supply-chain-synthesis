@@ -8,37 +8,35 @@ import plotly.express as px
 
 
 def load_2d_graph(data_path: str, timestamp: int) -> nx.Graph:
-    G = nx.Graph()
-    timestamp_path = os.path.join(data_path, f"t_{timestamp}")
+    timestamp_file = os.path.join(data_path, f"t_{timestamp}.json")
 
-    for root, _, files in os.walk(timestamp_path):
-        if "node_data.json" in files:
-            with open(os.path.join(root, "node_data.json"), "r") as f:
-                node_data = json.load(f)
-                G.add_node(node_data["id"], **node_data["data"])
+    try:
+        with open(timestamp_file, "r", encoding="utf-8") as f:
+            graph_data = json.load(f)
 
-        if "edge_data.json" in files:
-            with open(os.path.join(root, "edge_data.json"), "r") as f:
-                edge_data = json.load(f)
-                for edge in edge_data:
-                    G.add_edge(edge["source"], edge["target"])
+        G = nx.Graph()
+        G.add_nodes_from((n, d) for n, d in graph_data["nodes"].items())
+        G.add_edges_from(graph_data["edges"])
 
-    return G
+        return G
+    except FileNotFoundError:
+        st.error(f"Timestamp file not found: {timestamp_file}")
+    except json.JSONDecodeError as e:
+        st.error(f"Error decoding JSON in {timestamp_file}: {str(e)}")
+    except KeyError as e:
+        st.error(f"Missing key in graph data: {str(e)}")
+
+    return None
 
 
-def load_3d_graph(
+def load_3d_graphs(
     data_path: str, start_timestamp: int, end_timestamp: int
 ) -> List[nx.Graph]:
     graphs = []
-    timestamps = sorted(
-        [int(d.split("_")[1]) for d in os.listdir(data_path) if d.startswith("t_")]
-    )
-
-    for timestamp in timestamps:
-        if start_timestamp <= timestamp <= end_timestamp:
-            G = load_2d_graph(data_path, timestamp)
+    for timestamp in range(start_timestamp, end_timestamp + 1):
+        G = load_2d_graph(data_path, timestamp)
+        if G is not None:
             graphs.append(G)
-
     return graphs
 
 
@@ -361,26 +359,34 @@ def main():
 
         if st.button("Load Graph"):
             G = load_2d_graph(data_path, timestamp)
-            st.session_state.graph = G
-            st.session_state.graph_mode = "2D"
-            st.success(
-                f"2D Graph loaded with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges"
-            )
+            if G is not None:
+                st.session_state.graph = G
+                st.session_state.graph_mode = "2D"
+                st.success(
+                    f"2D Graph loaded with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges"
+                )
+            else:
+                st.error("Failed to load the graph.")
 
     else:  # 3D mode
-        timestamps = sorted(
-            [int(d.split("_")[1]) for d in os.listdir(data_path) if d.startswith("t_")]
+        start_timestamp = st.number_input(
+            "Enter the start timestamp:", min_value=1, value=1, step=1
         )
-        start_timestamp = st.selectbox("Select start timestamp:", timestamps)
-        end_timestamp = st.selectbox(
-            "Select end timestamp:", [t for t in timestamps if t >= start_timestamp]
+        end_timestamp = st.number_input(
+            "Enter the end timestamp:",
+            min_value=start_timestamp,
+            value=start_timestamp + 2,
+            step=1,
         )
 
         if st.button("Load Graphs"):
-            graphs = load_3d_graph(data_path, start_timestamp, end_timestamp)
-            st.session_state.graphs = graphs
-            st.session_state.graph_mode = "3D"
-            st.success(f"3D Graphs loaded: {len(graphs)} timestamps")
+            graphs = load_3d_graphs(data_path, start_timestamp, end_timestamp)
+            if graphs:
+                st.session_state.graphs = graphs
+                st.session_state.graph_mode = "3D"
+                st.success(f"3D Graphs loaded with {len(graphs)} timestamps")
+            else:
+                st.error("Failed to load the graphs.")
 
     if "graph_mode" in st.session_state:
         st.header("Query Options")
