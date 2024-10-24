@@ -11,6 +11,7 @@ import shutil
 from datetime import datetime
 import time
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 
 class SupplyChainSimulation:
@@ -118,24 +119,22 @@ class SupplyChainSimulation:
         # Create Suppliers
         for _ in range(self.config["num_suppliers"]):
             supplier_id = self.generate_id("Supplier")
+            num_products = max(1, int(len(data["Products"]) * random.uniform(0.1, 0.3)))
             data["Suppliers"][supplier_id] = {
                 "name": f"Supplier {self.counters['Supplier']}",
                 "location": f"Location {self.counters['Supplier']}",
-                "products": random.sample(
-                    list(data["Products"].keys()), random.randint(1, 5)
-                ),
+                "products": random.sample(list(data["Products"].keys()), num_products),
                 "timestamp": self.timestamp,
             }
 
         # Create Warehouses
         for _ in range(self.config["num_warehouses"]):
             warehouse_id = self.generate_id("Warehouse")
+            num_products = max(1, int(len(data["Products"]) * random.uniform(0.3, 0.6)))
             data["Warehouses"][warehouse_id] = {
                 "name": f"Warehouse {self.counters['Warehouse']}",
                 "location": f"Location {self.counters['Warehouse']}",
-                "products": random.sample(
-                    list(data["Products"].keys()), random.randint(5, 20)
-                ),
+                "products": random.sample(list(data["Products"].keys()), num_products),
                 "timestamp": self.timestamp,
             }
 
@@ -174,8 +173,8 @@ class SupplyChainSimulation:
             create_part()
 
     def assign_parts_to_product(self, parts):
-        num_parts = random.randint(1, 5)
-        selected_parts = random.sample(list(parts.keys()), min(num_parts, len(parts)))
+        num_parts = random.randint(1, min(5, len(parts)))
+        selected_parts = random.sample(list(parts.keys()), num_parts)
         return {part: random.randint(1, 10) for part in selected_parts}
 
     def initialize_graph(self):
@@ -514,13 +513,50 @@ class SupplyChainSimulation:
         self.counters[node_type] += 1
         return f"{node_type.replace(' ', '_')}_{self.counters[node_type]:06d}"
 
+    def plot_node_edge_evolution(self):
+        plt.figure(figsize=(12, 6))
+
+        # Plot node evolution
+        ax1 = plt.subplot(121)
+        for node_type in self.node_counts[0].keys():
+            counts = [
+                timestamp_count[node_type] for timestamp_count in self.node_counts
+            ]
+            ax1.plot(range(len(self.node_counts)), counts, label=node_type)
+
+        ax1.set_xlabel("Timestamp")
+        ax1.set_ylabel("Number of Nodes")
+        ax1.set_title("Node Evolution")
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+
+        # Plot edge evolution
+        ax2 = plt.subplot(122)
+        for edge_type in self.edge_counts[0].keys():
+            counts = [
+                timestamp_count[edge_type] for timestamp_count in self.edge_counts
+            ]
+            ax2.plot(range(len(self.edge_counts)), counts, label=edge_type)
+
+        ax2.set_xlabel("Timestamp")
+        ax2.set_ylabel("Number of Edges")
+        ax2.set_title("Edge Evolution")
+        ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(self.config["data_path"], "node_edge_evolution.png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.close()
+
 
 # Increase the recursion limit
 sys.setrecursionlimit(10000)
 
 # Example usage
 config = {
-    "initial_timestamps": 1,
+    "initial_timestamps": 10,
     "update_delete_timestamps": 2,
     "max_pos_per_timestamp": 5,
     "max_updates_per_timestamp": 10,
@@ -529,7 +565,7 @@ config = {
     "num_products": 50,
     "num_suppliers": 20,
     "num_warehouses": 30,
-    "num_part_types": 50,
+    "num_part_types": 100,
     "data_path": "data/run1",
 }
 

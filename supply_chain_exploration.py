@@ -615,8 +615,8 @@ def main():
                 st.write(f"Number of edges: {state.graph.number_of_edges()}")
 
                 # Visualize graph
-                st.subheader("Graph Visualization")
-                visualize_graph(state.graph)
+                # st.subheader("Graph Visualization")
+                # visualize_graph(state.graph)
 
                 # Node type distribution
                 st.subheader("Node Type Distribution")

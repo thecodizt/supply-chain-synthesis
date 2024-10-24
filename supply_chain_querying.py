@@ -320,8 +320,12 @@ def visualize_node_evolution(evolution: Dict[int, Dict[str, Any]]):
     fig.update_layout(
         title="Node Attribute Evolution",
         xaxis_title="Timestamp",
-        yaxis_title="Attribute Value",
+        yaxis_title="Value",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=50, r=50, t=50, b=50),
+        height=500,
     )
+    fig.update_yaxes(title_standoff=5)
     return fig
 
 
@@ -338,9 +342,22 @@ def visualize_edge_evolution(evolution: Dict[int, bool]):
     fig.update_layout(
         title="Edge Evolution",
         xaxis_title="Timestamp",
-        yaxis_title="Edge Exists (1) or Not (0)",
+        yaxis_title="Exists",
+        yaxis=dict(tickmode="array", tickvals=[0, 1], ticktext=["No", "Yes"]),
+        margin=dict(l=50, r=50, t=50, b=50),
+        height=400,
     )
+    fig.update_yaxes(title_standoff=5)
     return fig
+
+
+def get_available_timestamps(data_path: str) -> List[int]:
+    timestamps = []
+    for file in os.listdir(data_path):
+        if file.startswith("t_") and file.endswith(".json"):
+            timestamp = int(file.split("_")[1].split(".")[0])
+            timestamps.append(timestamp)
+    return sorted(timestamps)
 
 
 # Streamlit UI
@@ -348,13 +365,25 @@ def main():
     st.title("Supply Chain Graph Query Tool")
 
     data_path = st.text_input("Enter the data path:", value="data/run1")
+    available_timestamps = get_available_timestamps(data_path)
+
+    if not available_timestamps:
+        st.error("No timestamp files found in the specified directory.")
+        return
+
+    min_timestamp = min(available_timestamps)
+    max_timestamp = max(available_timestamps)
 
     # Toggle between 2D and 3D
     graph_mode = st.radio("Select graph mode:", ("2D", "3D"))
 
     if graph_mode == "2D":
         timestamp = st.number_input(
-            "Enter the timestamp:", min_value=1, value=1, step=1
+            "Enter the timestamp:",
+            min_value=min_timestamp,
+            max_value=max_timestamp,
+            value=min_timestamp,
+            step=1,
         )
 
         if st.button("Load Graph"):
@@ -370,12 +399,17 @@ def main():
 
     else:  # 3D mode
         start_timestamp = st.number_input(
-            "Enter the start timestamp:", min_value=1, value=1, step=1
+            "Enter the start timestamp:",
+            min_value=min_timestamp,
+            max_value=max_timestamp,
+            value=min_timestamp,
+            step=1,
         )
         end_timestamp = st.number_input(
             "Enter the end timestamp:",
             min_value=start_timestamp,
-            value=start_timestamp + 2,
+            max_value=max_timestamp,
+            value=min(start_timestamp + 2, max_timestamp),
             step=1,
         )
 
