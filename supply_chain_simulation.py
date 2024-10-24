@@ -520,8 +520,8 @@ sys.setrecursionlimit(10000)
 
 # Example usage
 config = {
-    "initial_timestamps": 3,
-    "update_delete_timestamps": 3,
+    "initial_timestamps": 1,
+    "update_delete_timestamps": 2,
     "max_pos_per_timestamp": 5,
     "max_updates_per_timestamp": 10,
     "max_deletions_per_timestamp": 3,
